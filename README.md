@@ -129,6 +129,95 @@ enable it with `output.telegram_enabled: true` and provide
 `FXSIGNALS_TELEGRAM_TOKEN` / `FXSIGNALS_TELEGRAM_CHAT_ID` environment
 variables. Sink failures are logged, never fatal.
 
+## Backtest
+
+`src/fxsignals/backtest/` measures the quality of engine signals **without
+executing anything**. It reuses `SignalEngine.evaluate_history`, so live and
+backtest logic are identical — no duplicated signal code.
+
+**Conservative simulation rules**
+
+- Entry at the **next bar's open** after the signal bar (never the signal
+  bar's close).
+- If one bar touches both SL and TP, the **SL is assumed hit first**
+  (`sl_first_on_ambiguity: true`, configurable).
+- Costs applied at entry and on SL exits; every `r_multiple` in reports is
+  **net of costs**.
+
+**Cost model** (defaults, pips per pair)
+
+| Pair class | Spread | Slippage |
+|---|---|---|
+| Majors (EURUSD, GBPUSD, AUDUSD, USDCAD, USDCHF, NZDUSD) | 1.0 pip | 0.2 pip |
+| JPY pairs (USDJPY) | 1.2 pips | 0.2 pip |
+| XAUUSD | 25 points-equivalent | 0.2 pip |
+
+**Usage**
+
+```bash
+python -m fxsignals.backtest.runner \
+    --config config/settings.yaml \
+    --pairs EURUSD,GBPUSD \
+    --start 2024-01-01 --end 2025-12-31 \
+    --split 0.7          # walk-forward: first 70% in-sample, last 30% OOS
+```
+
+**Output**: each run writes `reports/backtest_<timestamp>/` containing
+
+- `trades.csv` — every simulated trade (entry/exit, R multiple, pips, reason),
+- `metrics.json` — win rate, expectancy, profit factor, max drawdown (R),
+  streaks, splits by direction/pair/session/score bucket, factor attribution,
+- `summary.md` — plain-text tables,
+- `equity_curve.csv` — cumulative R per trade,
+- `equity_curve.png` — only if matplotlib is importable (skipped silently).
+
+## Project Status
+
+| Layer | Status |
+|-------|--------|
+| Data (providers, store, resample) | Built |
+| Features (indicators, structure, S/R, sessions, patterns) | Built |
+| Signals (scoring, risk, filters, engine, scanner) | Built |
+| Backtest (simulator, metrics, report, runner) | Built |
+| Real data provider (OANDA/Twelve Data) | Not started |
+| Walk-forward optimization | Not started |
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+
+# single scan pass over all configured pairs (synthetic data by default)
+python -m fxsignals.scanner --once
+
+# backtest the engine over available history
+python -m fxsignals.backtest.runner --config config/settings.yaml
+```
+
+## Data Requirements
+
+- **Default**: the deterministic `synthetic` provider — fine for testing and
+  demos, **not** for evaluating real edge.
+- **Real data**: switch `provider: csv` in `config/settings.yaml` and place
+  files in `data_dir` (default `./data`) named `{PAIR}_{TF}.csv`
+  (e.g. `EURUSD_H1.csv`, `EURUSD_H4.csv`).
+- **Columns**: `time, open, high, low, close, volume` (timestamps parsed as
+  UTC; volume optional).
+- **Minimum**: ~2 years of H1 data per pair (plus the H4 bias timeframe) for
+  a meaningful backtest.
+
+## Configuration
+
+All runtime behaviour lives in `config/settings.yaml`, loaded and validated by
+`src/fxsignals/config.py` (typed dataclasses, clear errors on bad values):
+
+- `pairs`, `timeframes` (bias/entry), `provider`, `paths`, `log_level`
+- `signals:` — score gates, weights (must sum to 100), RR bounds, cooldown
+- `filters:` — ADX floor, allowed sessions, ATR percentile band, lookback
+- `output:` — JSONL path, Telegram toggle (credentials via env vars only)
+- `backtest:` — cost model (spread/slippage), SL-first rule, max bars in
+  trade, one-trade-per-pair flag, report directory
+
 ## Tests
 
 ```bash
