@@ -10,5 +10,6 @@ __version__ = "0.1.0"
 from fxsignals.data import csv_provider as _csv_provider  # registers "csv"
 from fxsignals.data import synthetic as _synthetic  # registers "synthetic"
 from fxsignals.models import Direction, Signal, Timeframe
+from fxsignals.signals.engine import SignalEngine
 
-__all__ = ["Direction", "Signal", "Timeframe", "__version__"]
+__all__ = ["Direction", "Signal", "SignalEngine", "Timeframe", "__version__"]

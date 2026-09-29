@@ -72,6 +72,63 @@ class OandaProvider(DataProvider):
 Set `provider: oanda` in `config/settings.yaml` (and extend `VALID_PROVIDERS`
 in `config.py` if you want config-time validation for the new name).
 
+## Features
+
+`src/fxsignals/features/` turns candles into analysis-ready frames (pure
+pandas/numpy, no TA-Lib). Every output is aligned to the candle index and is
+strictly causal: a value at bar *t* uses only bars ≤ *t*; swings are stamped
+at their **confirmation** bar; warm-up values stay NaN (never back-filled).
+
+- `indicators.py` — ema, sma, rsi (Wilder), atr (Wilder), macd, adx (+DI/-DI),
+  bollinger (mid/upper/lower/width), stochastic (%K/%D); min-bars documented.
+- `swings.py` / `structure.py` — pivot detection plus per-bar trend state
+  (UP/DOWN/RANGE), last confirmed swing levels, BOS and CHoCH (close breaks).
+- `levels.py` — ATR-width S/R zones clustered from confirmed swings, with
+  nearest-zone distance in ATR units, visible only after zone formation.
+- `sessions.py` — UTC session tags: asia, london, newyork, overlap.
+- `patterns.py` — engulfing, pin bar, inside bar as Boolean Series.
+- `pipeline.py` — `build_features(df)` joins everything with `ind_ sw_ st_ lv_
+  ses_ pat_` prefixes; `build_mtf_features(bias_df, entry_df)` adds closed-bar
+  only HTF columns (`htf_`); `FEATURE_GROUPS` / `INDICATOR_GROUPS` mark
+  correlated families so downstream scoring counts each group once.
+
+## Signals
+
+`src/fxsignals/signals/` converts features into advisory `Signal` objects on
+**closed bars only** (act at next bar open). It never executes orders.
+
+- **Scoring** (`scoring.py`): weighted confluence, 0–100 per direction —
+  htf_bias 30, structure 20, location 20, momentum 10 (RSI+stoch counted
+  once), trend_strength 10 (EMA+MACD+ADX counted once), trigger 10; partial
+  credit and human-readable reasons per group. Weights must sum to 100.
+- **Risk** (`risk.py`): SL beyond the protecting swing/zone + ATR buffer,
+  capped to [min_sl_atr, max_sl_atr]; TP from rr_target (2.0) or the next
+  opposing zone; rejects rr < min_rr (1.5). Pip-aware (JPY 0.01, XAU 0.1).
+- **Filters** (`filters.py`, all causal): minimum ADX, allowed sessions
+  (default london/newyork/overlap), ATR percentile band, cooldown per
+  pair+direction, duplicate-entry suppression.
+- **Engine** (`engine.py`): `SignalEngine(cfg).evaluate(pair, bias_df,
+  entry_df)` for the latest closed bar; `.evaluate_history(...)` replays every
+  bar with identical semantics for backtesting. Emits when score ≥ min_score
+  (65) and the winning direction beats the other by direction_margin (15).
+  `fxsignals.signals.factory.build_engine_config(settings)` maps the YAML
+  `signals:` / `filters:` sections onto an `EngineConfig`.
+
+Running the scanner:
+
+```bash
+python -m fxsignals.scanner --once            # single pass over all pairs
+python -m fxsignals.scanner --loop            # wake shortly after each H1 close
+python -m fxsignals.scanner --loop --interval 3600   # fixed cadence instead
+```
+
+Each signal is printed as a readable block and appended to
+`output.jsonl_path` (default `./signals.jsonl`) as one JSON object per line
+(`Signal.to_dict()`). An optional Telegram hook is **disabled by default**;
+enable it with `output.telegram_enabled: true` and provide
+`FXSIGNALS_TELEGRAM_TOKEN` / `FXSIGNALS_TELEGRAM_CHAT_ID` environment
+variables. Sink failures are logged, never fatal.
+
 ## Tests
 
 ```bash
