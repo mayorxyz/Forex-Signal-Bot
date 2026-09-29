@@ -52,7 +52,7 @@ from fxsignals.models import Timeframe
 
 def frame_from_rows(rows: list[tuple[float, float, float, float]]) -> pd.DataFrame:
     """Build a contract frame from (open, high, low, close) tuples at H1 spacing."""
-    idx = pd.date_range("2024-06-03", periods=len(rows), freq="1h", tz="UTC")
+    idx = pd.date_range("2024-06-03", periods=len(rows), freq=Timeframe.H1.rule, tz="UTC")
     arr = np.asarray(rows, dtype=float)
     return pd.DataFrame(
         {
@@ -68,7 +68,7 @@ def frame_from_rows(rows: list[tuple[float, float, float, float]]) -> pd.DataFra
 
 def synthetic_frame(n: int = 240, tf: Timeframe = Timeframe.H1, seed: int = 11) -> pd.DataFrame:
     """Deterministic random-walk frame starting Monday 00:00 UTC (no weekends)."""
-    idx = pd.date_range("2024-06-03", periods=n, freq=tf.pandas_alias, tz="UTC")
+    idx = pd.date_range("2024-06-03", periods=n, freq=tf.rule, tz="UTC")
     rng = np.random.default_rng(seed)
     close = 1.10 + np.cumsum(rng.normal(0.0, 0.0015, n))
     open_ = np.concatenate([[1.10], close[:-1]])

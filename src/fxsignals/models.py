@@ -31,6 +31,32 @@ TIMEFRAME_DURATIONS: dict[str, str] = {
 }
 
 
+def timeframe_rule(name: str) -> str:
+    """Return the pandas resample rule for a timeframe from the central map.
+
+    This and :func:`timeframe_timedelta` are the only places that read the
+    pandas unit strings held in ``TIMEFRAME_DURATIONS``; no enum value is ever
+    used as a pandas frequency string.
+
+    Args:
+        name: Timeframe code, e.g. ``'H1'`` (case-insensitive).
+
+    Returns:
+        A pandas 3 compatible offset string, e.g. ``'4h'``.
+
+    Raises:
+        ValueError: if ``name`` is not present in TIMEFRAME_DURATIONS.
+    """
+    key = name.strip().upper()
+    try:
+        return TIMEFRAME_DURATIONS[key]
+    except KeyError as exc:
+        valid = ", ".join(TIMEFRAME_DURATIONS)
+        raise ValueError(
+            f"Unknown timeframe {name!r}; expected one of: {valid}"
+        ) from exc
+
+
 def timeframe_timedelta(name: str) -> pd.Timedelta:
     """Return the bar duration for a timeframe code from the central mapping.
 
@@ -43,24 +69,20 @@ def timeframe_timedelta(name: str) -> pd.Timedelta:
     Raises:
         ValueError: if ``name`` is not present in TIMEFRAME_DURATIONS.
     """
-    key = name.strip().upper()
-    try:
-        return pd.Timedelta(TIMEFRAME_DURATIONS[key])
-    except KeyError as exc:
-        valid = ", ".join(TIMEFRAME_DURATIONS)
-        raise ValueError(
-            f"Unknown timeframe {name!r}; expected one of: {valid}"
-        ) from exc
+    return pd.Timedelta(timeframe_rule(name))
 
 
 class Timeframe(Enum):
-    """Supported bar intervals. Value is the central duration string."""
+    """Supported bar intervals. Canonical labels: value == name (e.g. 'H4')."""
 
-    M15 = TIMEFRAME_DURATIONS["M15"]
-    M30 = TIMEFRAME_DURATIONS["M30"]
-    H1 = TIMEFRAME_DURATIONS["H1"]
-    H4 = TIMEFRAME_DURATIONS["H4"]
-    D1 = TIMEFRAME_DURATIONS["D1"]
+    M1 = "M1"
+    M5 = "M5"
+    M15 = "M15"
+    M30 = "M30"
+    H1 = "H1"
+    H4 = "H4"
+    D1 = "D1"
+    W1 = "W1"
 
     @property
     def minutes(self) -> int:
@@ -73,20 +95,20 @@ class Timeframe(Enum):
         return timeframe_timedelta(self.name)
 
     @property
-    def pandas_alias(self) -> str:
-        """Offset alias usable with ``DataFrame.resample`` (pandas 3 safe)."""
-        return self.value
+    def rule(self) -> str:
+        """Pandas resample rule for this timeframe (from the central map)."""
+        return timeframe_rule(self.name)
 
     @classmethod
     def from_str(cls, name: str) -> "Timeframe":
-        """Parse a timeframe from its code (``'H1'``) or pandas alias.
+        """Parse a timeframe from its canonical code (``'H1'``, case-insensitive).
 
         Raises:
             ValueError: if the string does not match any known timeframe.
         """
         key = name.strip().upper()
         for tf in cls:
-            if key == tf.name or key == tf.value.upper():
+            if key == tf.name:
                 return tf
         valid = ", ".join(tf.name for tf in cls)
         raise ValueError(f"Unknown timeframe {name!r}; expected one of: {valid}")
