@@ -192,7 +192,7 @@ class TestRiskLevels:
 class TestFilters:
     def test_cooldown_blocks_then_expires(self):
         cfg = FilterConfig(cooldown_bars=3)
-        idx = pd.date_range("2026-03-02", periods=10, freq="h", tz="UTC")
+        idx = pd.date_range("2026-03-02", periods=10, freq=Timeframe.H1.rule, tz="UTC")
         f = CooldownFilter(cfg)
         ok, _ = f.check("EURUSD", Direction.LONG, idx[0], idx)
         assert ok

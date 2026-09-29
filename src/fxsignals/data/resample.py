@@ -9,12 +9,24 @@ from __future__ import annotations
 
 import pandas as pd
 
-from fxsignals.models import Timeframe, timeframe_timedelta
+from fxsignals.models import Timeframe, timeframe_rule, timeframe_timedelta
 
 
 def _tf_step(tf: Timeframe) -> pd.Timedelta:
     """Return the bar duration for ``tf`` from the central mapping."""
     return timeframe_timedelta(tf.name)
+
+
+def _infer_tf_minutes(df: pd.DataFrame) -> float | None:
+    """Median bar spacing of ``df`` in minutes (None if fewer than two bars).
+
+    Uses index diffs rather :func:`pandas.infer_freq` so weekend gaps and
+    non-standard frequencies never produce legacy alias strings.
+    """
+    if len(df.index) < 2:
+        return None
+    diffs = df.index.to_series().diff().dropna()
+    return float(diffs.median().total_seconds() / 60.0)
 
 
 def resample_ohlc(
@@ -50,16 +62,16 @@ def resample_ohlc(
     if df.empty:
         return df.copy()
 
-    src_step = pd.infer_freq(df.index)
-    if src_step is not None:
-        src_minutes = pd.Timedelta(src_step).total_seconds() / 60.0
-        if src_minutes > target_tf.minutes:
-            raise ValueError(
-                f"Cannot resample from ~{int(src_minutes)}min bars to "
-                f"{target_tf.name} ({target_tf.minutes}min): target is finer."
-            )
+    src_minutes = _infer_tf_minutes(df)
+    if src_minutes is not None and src_minutes > target_tf.minutes:
+        raise ValueError(
+            f"Cannot resample from ~{int(src_minutes)}min bars to "
+            f"{target_tf.name} ({target_tf.minutes}min): target is finer."
+        )
 
-    agg = df.resample(target_tf.pandas_alias, label="left", closed="left").agg(
+    agg = df.resample(
+        timeframe_rule(target_tf.name), label="left", closed="left"
+    ).agg(
         {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
     )
     agg = agg.dropna(subset=["open", "high", "low", "close"])

@@ -28,7 +28,7 @@ from fxsignals.models import Direction, Signal, Timeframe
 
 def make_frame(n: int = 48, tf: Timeframe = Timeframe.H1) -> pd.DataFrame:
     """Small deterministic contract-compliant frame for unit tests."""
-    idx = pd.date_range("2024-01-01", periods=n, freq=tf.pandas_alias, tz="UTC")
+    idx = pd.date_range("2024-01-01", periods=n, freq=tf.rule, tz="UTC")
     rng = np.random.default_rng(7)
     close = 1.1 + np.cumsum(rng.normal(0, 0.001, n))
     open_ = np.concatenate([[1.1], close[:-1]])
@@ -46,9 +46,14 @@ def make_frame(n: int = 48, tf: Timeframe = Timeframe.H1) -> pd.DataFrame:
 def test_timeframe_minutes_and_parsing() -> None:
     assert Timeframe.H1.minutes == 60
     assert Timeframe.H4.minutes == 240
+    # Canonical labels: value == name for every timeframe.
+    assert all(tf.value == tf.name for tf in Timeframe)
     assert Timeframe.from_str("h1") is Timeframe.H1
+    assert Timeframe.M5.minutes == 5 and Timeframe.W1.minutes == 7 * 24 * 60
+    # Pandas strings come only from the central map, via helpers.
+    assert Timeframe.H1.rule == "1h" and Timeframe.D1.rule == "1D"
     with pytest.raises(ValueError):
-        Timeframe.from_str("M5")
+        Timeframe.from_str("H6")
 
 
 def test_signal_validation_and_dict() -> None:
