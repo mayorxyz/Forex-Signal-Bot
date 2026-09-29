@@ -15,6 +15,9 @@ Definitions used here:
   the last confirmed swing low while trend is UP, or above the last swing
   high while trend is DOWN. A CHoCH flips the internal bias to RANGE until
   new HH/HL (or LH/LL) evidence re-establishes a trend.
+
+BOS and CHoCH are edge-triggered: each fires once, on the first close beyond
+each confirmed swing level, not on every later bar that stays past it.
 """
 
 from __future__ import annotations
@@ -31,6 +34,17 @@ TREND_DOWN = "DOWN"
 TREND_RANGE = "RANGE"
 
 
+def _same_level(a: float, b: float) -> bool:
+    """Return True if two swing levels denote the same broken level.
+
+    ``np.nan`` matches only ``np.nan`` (no level recorded yet), so a plain
+    ``a != b`` comparison would wrongly re-fire on the very first break.
+    """
+    if np.isnan(a) or np.isnan(b):
+        return bool(np.isnan(a) and np.isnan(b))
+    return a == b
+
+
 @dataclass(frozen=True)
 class StructureResult:
     """Per-bar market-structure output.
@@ -40,7 +54,8 @@ class StructureResult:
             ``trend_state`` ('UP'/'DOWN'/'RANGE'), ``st_defined`` (bool: at
             least two swings of each kind known), ``last_swing_high``,
             ``last_swing_low``, ``bos_up``, ``bos_down``, ``choch`` (bool
-            Series, True on the break bar itself).
+            Series, edge-triggered: True only on the first bar closing
+            beyond each confirmed swing level).
         swings: The :class:`SwingSet` the structure was computed from.
     """
 
@@ -82,6 +97,11 @@ def market_structure(
     bos_down = np.zeros(m, dtype=bool)
     choch = np.zeros(m, dtype=bool)
 
+    # Edge-trigger state: the last swing level already broken by each flag.
+    # A BOS/CHoCH fires only on the first close beyond a *new* level, so
+    # later bars that stay past the same level do not re-fire it.
+    bos_up_level = bos_down_level = choch_level = np.nan
+
     # Event cursors keep the per-bar scan O(events + bars), not O(bars*events).
     h_prices: list[float] = []
     l_prices: list[float] = []
@@ -122,15 +142,27 @@ def market_structure(
         broke_low = not np.isnan(last_low) and close < last_low
 
         if state == TREND_UP and broke_low:
-            choch[i] = True  # first break against bullish structure
+            # CHoCH: first close below the last confirmed swing low in an UP trend.
+            if not _same_level(last_low, choch_level):
+                choch[i] = True
+                choch_level = last_low
             bias = TREND_RANGE
         elif state == TREND_DOWN and broke_high:
-            choch[i] = True  # first break against bearish structure
+            # CHoCH: first close above the last confirmed swing high in a DOWN trend.
+            if not _same_level(last_high, choch_level):
+                choch[i] = True
+                choch_level = last_high
             bias = TREND_RANGE
         elif state == TREND_UP and broke_high:
-            bos_up[i] = True  # continuation break in trend direction
+            # BOS up: continuation break above the last confirmed swing high.
+            if not _same_level(last_high, bos_up_level):
+                bos_up[i] = True
+                bos_up_level = last_high
         elif state == TREND_DOWN and broke_low:
-            bos_down[i] = True
+            # BOS down: continuation break below the last confirmed swing low.
+            if not _same_level(last_low, bos_down_level):
+                bos_down[i] = True
+                bos_down_level = last_low
 
         trend[i] = state
         defined[i] = len(h_prices) >= 2 and len(l_prices) >= 2
