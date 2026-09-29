@@ -22,3 +22,32 @@ paths:
   cache_dir: ./.cache
 
 log_level: INFO       # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+# --- Signal engine (analysis output only; this bot never places orders) ---
+signals:
+  min_score: 65          # emit only when the direction score >= this (0-100)
+  direction_margin: 15   # winning direction must beat the other by this much
+  rr_target: 2.0         # reward:risk target used to place take profit
+  min_rr: 1.5            # reject setups whose realized R:R is below this
+  min_sl_atr: 0.5        # stop distance bounds, in ATR units
+  max_sl_atr: 3.0
+  sl_atr_buffer: 0.25    # extra buffer beyond the swing/zone protecting level
+  cooldown_bars: 12      # no new signal for same pair+direction within N bars
+  weights:               # confluence groups; defaults sum to 100 (validated)
+    htf_bias: 30
+    structure: 20
+    location: 20
+    momentum: 10         # RSI + stochastic counted ONCE as a group
+    trend_strength: 10   # EMA + MACD + ADX counted ONCE as a group
+    trigger: 10
+
+filters:
+  min_adx: 18.0                  # skip dead ranges (entry-TF ADX below this)
+  sessions: [london, newyork, overlap]   # allowed session tags (UTC-based)
+  atr_percentile_low: 10         # ATR must sit inside its own historical band
+  atr_percentile_high: 95
+  lookback: 180                  # bars used to compute that percentile band
+
+output:
+  jsonl_path: ./signals.jsonl
+  telegram_enabled: false        # token/chat id come from env vars, never yaml
