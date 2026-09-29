@@ -96,10 +96,10 @@ FEATURE_GROUPS: dict[str, list[str]] = {
 
 
 def _prefix(df: pd.DataFrame, pfx: str, group: str) -> pd.DataFrame:
-    """Rename columns with ``pfx`` and record them under ``group``."""
+    """Rename columns with ``pfx`` and record them under ``group`` (exact set)."""
     out = df.copy()
     out.columns = [f"{pfx}{c}" for c in out.columns]
-    FEATURE_GROUPS[group] = sorted(set(FEATURE_GROUPS[group]) | set(out.columns))
+    FEATURE_GROUPS[group] = list(out.columns)
     return out
 
 
@@ -246,11 +246,22 @@ def build_mtf_features(
     if missing:
         raise ValueError(f"bias feature columns not found: {missing}")
 
-    ref = align_htf_to_ltf(bias_feats, entry_df)  # open time of last CLOSED bar
-    payload = bias_feats[list(bias_columns)]
-    out = payload.reindex(ref.values)
-    out.index = entry_df.index
-    out.columns = [f"htf_{c}" for c in bias_columns]
+    ref = align_htf_to_ltf(bias_df, entry_df)  # open time of last CLOSED bias bar
+    known = ref.dropna()
+    positions = pd.Series(-1, index=entry_df.index, dtype=int)
+    if not known.empty:
+        positions.loc[known.index] = bias_feats.index.get_indexer(known.to_numpy())
+    out = pd.DataFrame(index=entry_df.index)
+    for col in bias_columns:
+        values = bias_feats[col].to_numpy(dtype=object)
+        mapped = pd.Series(
+            [values[p] if p >= 0 else None for p in positions.to_numpy()],
+            index=entry_df.index,
+        )
+        if col.startswith("ind_") or col == "st_trend_state":
+            out[f"htf_{col}"] = mapped  # numeric/NaN or label object column
+        else:  # boolean structure flags -> nullable Boolean dtype
+            out[f"htf_{col}"] = mapped.astype("boolean")
     out.insert(0, "htf_open_time", ref)
     FEATURE_GROUPS["htf"] = list(out.columns)
     return out
