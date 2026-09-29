@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fxsignals.config import ConfigError, default_settings, load_settings
+from fxsignals.config import ConfigError, PathsConfig, default_settings, load_settings
 from fxsignals.data import base as base_module
 from fxsignals.data.base import (
     DataProvider,
@@ -240,15 +240,13 @@ def test_csv_provider_roundtrip(tmp_path) -> None:
     raw.drop(columns=["volume"]).to_csv(out_dir / "EURUSD_H1.csv", index=False)
 
     settings = default_settings()
-    from fxsignals.config import PathsConfig, Settings
 
-    settings = Settings(
-        pairs=settings.pairs,
-        timeframes=settings.timeframes,
-        provider="csv",
-        paths=PathsConfig(data_dir=out_dir, cache_dir=tmp_path / "cache"),
-        log_level="INFO",
-    )
+    # Settings now has defaults for every section, so a minimal override works.
+    from dataclasses import replace
+
+    settings = replace(settings, provider="csv", paths=PathsConfig(
+        data_dir=out_dir, cache_dir=tmp_path / "cache"
+    ))
     prov = CsvProvider(settings)
     loaded = prov.get_candles("EURUSD", Timeframe.H1)
     assert len(loaded) == 12

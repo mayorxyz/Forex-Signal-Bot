@@ -7,7 +7,7 @@ and raising :class:`ConfigError` with a clear message on any problem.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -124,14 +124,18 @@ class OutputConfig:
 class Settings:
     """Fully validated application settings."""
 
-    pairs: tuple[str, ...]
-    timeframes: TimeframeConfig
-    provider: str
-    paths: PathsConfig
-    log_level: str
-    signals: SignalsConfig
-    filters: FiltersSectionConfig
-    output: OutputConfig
+    pairs: tuple[str, ...] = DEFAULT_PAIRS
+    timeframes: TimeframeConfig = field(
+        default_factory=lambda: TimeframeConfig(bias_tf=Timeframe.H4, entry_tf=Timeframe.H1)
+    )
+    provider: str = "synthetic"
+    paths: PathsConfig = field(
+        default_factory=lambda: PathsConfig(data_dir=Path("./data"), cache_dir=Path("./.cache"))
+    )
+    log_level: str = "INFO"
+    signals: SignalsConfig = field(default_factory=lambda: default_signals())
+    filters: FiltersSectionConfig = field(default_factory=lambda: default_filters())
+    output: OutputConfig = field(default_factory=lambda: default_output())
 
 
 def _require(data: dict[str, Any], key: str, where: str) -> Any:
@@ -432,7 +436,10 @@ def default_filters() -> FiltersSectionConfig:
 
 
 def default_output() -> OutputConfig:
-    """Built-in ``output`` defaults (mirror config/settings.yaml)."""
+    """Built-in ``output`` defaults (mirror config/settings.yaml).
+
+    Note: ``Path("./signals.jsonl")`` normalizes to ``Path("signals.jsonl")``.
+    """
     return OutputConfig(jsonl_path=Path("./signals.jsonl"), telegram_enabled=False)
 
 
