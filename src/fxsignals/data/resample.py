@@ -1,10 +1,20 @@
-"""Timeframe resampling and look-ahead-free HTF/LTF alignment."""
+"""Timeframe resampling and look-ahead-free HTF/LTF alignment.
+
+All timeframe durations come from the central ``TIMEFRAME_DURATIONS`` map in
+:mod:`fxsignals.models` so no legacy pandas aliases ("H", "T") or unit-only
+Timedelta strings are constructed here (both are rejected by pandas 3).
+"""
 
 from __future__ import annotations
 
 import pandas as pd
 
-from fxsignals.models import Timeframe
+from fxsignals.models import Timeframe, timeframe_timedelta
+
+
+def _tf_step(tf: Timeframe) -> pd.Timedelta:
+    """Return the bar duration for ``tf`` from the central mapping."""
+    return timeframe_timedelta(tf.name)
 
 
 def resample_ohlc(
@@ -57,7 +67,7 @@ def resample_ohlc(
     if not keep_incomplete_last and len(agg) > 0:
         # The final target bucket is only "closed" once a source bar exists at
         # or after its end time; otherwise it is still forming (look-ahead).
-        bucket_end = agg.index[-1] + pd.Timedelta(minutes=target_tf.minutes)
+        bucket_end = agg.index[-1] + _tf_step(target_tf)
         if df.index.max() < bucket_end:
             agg = agg.iloc[:-1]
 
@@ -84,7 +94,7 @@ def align_htf_to_ltf(htf_df: pd.DataFrame, ltf_df: pd.DataFrame) -> pd.Series:
     if htf_df.empty or ltf_df.empty:
         return pd.Series(pd.NaT, index=ltf_df.index, name="htf_open_time")
 
-    step = pd.Timedelta(minutes=_tf_minutes_from_index(htf_df))
+    step = _tf_step(_tf_from_index(htf_df))
     # Availability time of each HTF bar is its close (open + one interval);
     # the backward join below then guarantees only closed bars are visible.
     avail = pd.DataFrame(
@@ -113,8 +123,8 @@ def align_htf_to_ltf(htf_df: pd.DataFrame, ltf_df: pd.DataFrame) -> pd.Series:
     return out.sort_index()
 
 
-def _tf_minutes_from_index(df: pd.DataFrame) -> int:
-    """Infer the bar interval (minutes) of a candle frame's index.
+def _tf_from_index(df: pd.DataFrame) -> Timeframe:
+    """Infer the candle frame's timeframe from its index spacing.
 
     Uses the median spacing so weekend gaps do not skew the estimate.
 
@@ -128,5 +138,5 @@ def _tf_minutes_from_index(df: pd.DataFrame) -> int:
     minutes = int(diffs.median().total_seconds() // 60)
     for tf in Timeframe:
         if tf.minutes == minutes:
-            return tf.minutes
+            return tf
     raise ValueError(f"HTF index spacing {minutes}min is not a supported timeframe")

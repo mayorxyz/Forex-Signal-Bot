@@ -16,23 +16,65 @@ import pandas as pd
 CANDLE_COLUMNS: tuple[str, ...] = ("open", "high", "low", "close", "volume")
 
 
-class Timeframe(Enum):
-    """Supported bar intervals. Value is the pandas offset alias."""
+# Central timeframe mapping (single source of truth). Durations are expressed
+# as pandas 3 compatible unit strings ("min"/"h"/"D"/"W"); the legacy "H"/"T"
+# aliases and unit-only Timedelta strings are no longer accepted by pandas.
+TIMEFRAME_DURATIONS: dict[str, str] = {
+    "M1": "1min",
+    "M5": "5min",
+    "M15": "15min",
+    "M30": "30min",
+    "H1": "1h",
+    "H4": "4h",
+    "D1": "1D",
+    "W1": "1W",
+}
 
-    M15 = "15min"
-    M30 = "30min"
-    H1 = "1h"
-    H4 = "4h"
-    D1 = "1D"
+
+def timeframe_timedelta(name: str) -> pd.Timedelta:
+    """Return the bar duration for a timeframe code from the central mapping.
+
+    Args:
+        name: Timeframe code, e.g. ``'H1'`` (case-insensitive).
+
+    Returns:
+        The duration as a :class:`pandas.Timedelta`.
+
+    Raises:
+        ValueError: if ``name`` is not present in TIMEFRAME_DURATIONS.
+    """
+    key = name.strip().upper()
+    try:
+        return pd.Timedelta(TIMEFRAME_DURATIONS[key])
+    except KeyError as exc:
+        valid = ", ".join(TIMEFRAME_DURATIONS)
+        raise ValueError(
+            f"Unknown timeframe {name!r}; expected one of: {valid}"
+        ) from exc
+
+
+class Timeframe(Enum):
+    """Supported bar intervals. Value is the central duration string."""
+
+    M15 = TIMEFRAME_DURATIONS["M15"]
+    M30 = TIMEFRAME_DURATIONS["M30"]
+    H1 = TIMEFRAME_DURATIONS["H1"]
+    H4 = TIMEFRAME_DURATIONS["H4"]
+    D1 = TIMEFRAME_DURATIONS["D1"]
 
     @property
     def minutes(self) -> int:
-        """Duration of one bar in minutes."""
-        return _TF_MINUTES[self]
+        """Duration of one bar in minutes (derived from the central map)."""
+        return int(timeframe_timedelta(self.name).total_seconds() // 60)
+
+    @property
+    def timedelta(self) -> pd.Timedelta:
+        """Bar duration as a pandas Timedelta (from the central mapping)."""
+        return timeframe_timedelta(self.name)
 
     @property
     def pandas_alias(self) -> str:
-        """Offset alias usable with ``DataFrame.resample``."""
+        """Offset alias usable with ``DataFrame.resample`` (pandas 3 safe)."""
         return self.value
 
     @classmethod
@@ -48,15 +90,6 @@ class Timeframe(Enum):
                 return tf
         valid = ", ".join(tf.name for tf in cls)
         raise ValueError(f"Unknown timeframe {name!r}; expected one of: {valid}")
-
-
-_TF_MINUTES: dict[Timeframe, int] = {
-    Timeframe.M15: 15,
-    Timeframe.M30: 30,
-    Timeframe.H1: 60,
-    Timeframe.H4: 240,
-    Timeframe.D1: 1440,
-}
 
 
 class Direction(str, Enum):

@@ -150,24 +150,54 @@ def detect_swings(df: pd.DataFrame, left: int = 3, right: int = 3) -> pd.DataFra
     return events[[c for c in EVENT_COLUMNS if c != "confirmed_pos"]]
 
 
+def _event_arrays(
+    index: pd.DatetimeIndex,
+    events: pd.DataFrame,
+    kind: str,
+    field: str,
+) -> np.ndarray:
+    """Build a per-bar object array of ``field`` values stamped at confirmations.
+
+    Args:
+        index: The candle index the frame is aligned to.
+        events: Event table from :func:`swing_events`.
+        kind: ``'high'`` or ``'low'``.
+        field: Event column to place ('pivot_time' or 'confirmed_at').
+
+    Returns:
+        Object array of length ``len(index)`` holding tz-aware UTC
+        :class:`pandas.Timestamp` at each confirmation bar and ``None``
+        elsewhere (converted to NaT by :func:`pandas.to_datetime`).
+    """
+    out: list[object] = [None] * len(index)
+    subset = events[events["kind"] == kind]
+    for _, ev in subset.iterrows():
+        out[int(ev["confirmed_pos"])] = ev[field]
+    return np.asarray(out, dtype=object)
+
+
 def _causal_frame(df: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
-    """Stamp each confirmed pivot at its confirmation bar and ffill forward."""
+    """Stamp each confirmed pivot at its confirmation bar and ffill forward.
+
+    Datetime columns are constructed via :func:`pandas.to_datetime(...,
+    utc=True)` so they carry a tz-aware UTC dtype even when no events exist
+    (all-NaT), instead of assigning tz-aware Timestamps into a naive
+    ``datetime64`` column.
+    """
     frame = pd.DataFrame(index=df.index)
     for col in ("swing_high", "swing_low"):
         frame[col] = np.nan
-    for col in (
-        "pivot_time_high",
-        "pivot_time_low",
-        "confirmed_at_high",
-        "confirmed_at_low",
-    ):
-        frame[col] = pd.NaT
+    for kind in ("high", "low"):
+        # Build arrays from event positions/values, then create tz-aware UTC
+        # columns; pd.NaT fills bars where no event has been stamped yet.
+        pivot_arr = _event_arrays(df.index, events, kind, "pivot_time")
+        conf_arr = _event_arrays(df.index, events, kind, "confirmed_at")
+        frame[f"pivot_time_{kind}"] = pd.to_datetime(pivot_arr, utc=True)
+        frame[f"confirmed_at_{kind}"] = pd.to_datetime(conf_arr, utc=True)
     for _, ev in events.iterrows():
         pos = int(ev["confirmed_pos"])
         suffix = "high" if ev["kind"] == "high" else "low"
         frame.loc[df.index[pos], f"swing_{suffix}"] = float(ev["price"])
-        frame.loc[df.index[pos], f"pivot_time_{suffix}"] = ev["pivot_time"]
-        frame.loc[df.index[pos], f"confirmed_at_{suffix}"] = ev["confirmed_at"]
     # Forward fill only: past bars never learn about later pivots.
     return frame.ffill()
 

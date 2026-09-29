@@ -355,7 +355,7 @@ class TestConfigSection:
         assert settings.filters.atr_percentile_low == 10.0
         assert settings.filters.atr_percentile_high == 95.0
         assert settings.filters.lookback == 180
-        assert str(settings.output.jsonl_path) == "./signals.jsonl"
+        assert settings.output.jsonl_path == Path("signals.jsonl")
         assert settings.output.telegram_enabled is False
 
     def test_project_settings_file_loads(self):
@@ -364,7 +364,7 @@ class TestConfigSection:
         path = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
         settings = load_settings(path)
         assert settings.signals.cooldown_bars == 12
-        assert settings.output.jsonl_path == Path("./signals.jsonl")
+        assert settings.output.jsonl_path == Path("signals.jsonl")
 
     def test_missing_sections_fall_back_to_defaults(self, tmp_path):
         settings = load_settings(write_cfg(tmp_path, "bare.yaml"))
