@@ -1,0 +1,24 @@
+# fxsignals default configuration.
+# Analysis and signal output only - this codebase never executes orders.
+
+pairs:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - AUDUSD
+  - USDCAD
+  - USDCHF
+  - NZDUSD
+  - XAUUSD
+
+timeframes:
+  bias_tf: H4      # higher timeframe used for directional bias
+  entry_tf: H1     # lower timeframe used for entry signals
+
+provider: synthetic   # one of: csv | synthetic
+
+paths:
+  data_dir: ./data
+  cache_dir: ./.cache
+
+log_level: INFO       # DEBUG | INFO | WARNING | ERROR | CRITICAL
