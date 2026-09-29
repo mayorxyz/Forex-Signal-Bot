@@ -28,18 +28,46 @@ def _hl(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
 
 
 def _wilder_mean(x: pd.Series, period: int) -> pd.Series:
-    """Wilder's smoothing: SMA seed over the first window, then alpha=1/period."""
+    """Wilder's smoothing: SMA seed at the first non-NaN position, alpha=1/period.
+
+    The seed is placed at index ``s + period - 1`` where ``s`` is the first
+    non-NaN entry of ``x``; every position before it stays NaN and is never
+    back-filled. Returns all-NaN when fewer than ``period`` valid values exist
+    from ``s`` onward.
+    """
     if period <= 0:
         raise ValueError(f"period must be positive, got {period}")
-    if len(x) < period:
-        return pd.Series(np.nan, index=x.index, name=x.name)
     values = x.to_numpy(dtype=float)
     res = np.full(len(values), np.nan)
-    res[period - 1] = np.nanmean(values[:period])
+    nan_mask = np.isnan(values)
+    if nan_mask.all():
+        return pd.Series(res, index=x.index, name=x.name)
+    s = int(np.argmax(~nan_mask))  # first non-NaN position
+    if len(values) - s < period:
+        return pd.Series(res, index=x.index, name=x.name)
+    res[s + period - 1] = float(np.mean(values[s : s + period]))
     alpha = 1.0 / period
-    for i in range(period, len(values)):
+    for i in range(s + period, len(values)):
         res[i] = res[i - 1] + alpha * (values[i] - res[i - 1])
     return pd.Series(res, index=x.index, name=x.name)
+
+
+def _ema_values(values: np.ndarray, period: int) -> np.ndarray:
+    """SMA-seeded exponential moving average in numpy (causal, no back-fill).
+
+    Value at index ``period - 1`` equals the mean of the first ``period``
+    entries; afterwards ``res[i] = res[i-1] + alpha * (v[i] - res[i-1])`` with
+    ``alpha = 2 / (period + 1)``. Positions before ``period - 1`` are NaN.
+    """
+    n = len(values)
+    res = np.full(n, np.nan)
+    if n < period:
+        return res
+    res[period - 1] = float(np.mean(values[:period]))
+    alpha = 2.0 / (period + 1.0)
+    for i in range(period, n):
+        res[i] = res[i - 1] + alpha * (values[i] - res[i - 1])
+    return res
 
 
 def sma(df: pd.DataFrame, period: int = 20) -> pd.Series:
@@ -50,14 +78,21 @@ def sma(df: pd.DataFrame, period: int = 20) -> pd.Series:
 
 
 def ema(df: pd.DataFrame, period: int = 20) -> pd.Series:
-    """Exponential moving average of closes (adjust=False, SMA-seeded).
+    """Exponential moving average of closes (SMA-seeded, causal, no back-fill).
+
+    The value at index ``period - 1`` is the mean of the first ``period``
+    closes; afterwards ``res[i] = res[i-1] + alpha * (close[i] - res[i-1])``
+    with ``alpha = 2 / (period + 1)``. Positions before ``period - 1`` are NaN.
 
     Min bars: ``period``; earlier values are NaN.
     """
     if period <= 0:
         raise ValueError(f"period must be positive, got {period}")
-    return _close(df).ewm(span=period, adjust=False, min_periods=period).mean().rename(
-        f"ema_{period}"
+    close = _close(df)
+    return pd.Series(
+        _ema_values(close.to_numpy(dtype=float), period),
+        index=close.index,
+        name=f"ema_{period}",
     )
 
 
@@ -81,8 +116,9 @@ def rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     """Average True Range with Wilder smoothing. Min bars: ``period + 1``.
 
-    The first bar's true range equals its high-low span; results are > 0 for
-    valid candles.
+    The true range at bar 0 is NaN (there is no previous close), so the first
+    valid ATR value appears at index ``period``; results are > 0 for valid
+    candles from there on.
     """
     high, low = _hl(df)
     close = _close(df)
@@ -90,7 +126,6 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     tr = pd.concat(
         [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
     ).max(axis=1)
-    tr = tr.fillna(high - low)
     return _wilder_mean(tr, period).rename(f"atr_{period}")
 
 
@@ -135,7 +170,9 @@ def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """Average Directional Index with +DI / -DI (Wilder method).
 
     Min bars: ``2 * period + 1`` (the smoothed DI pair needs one extra bar
-    before ADX itself can be averaged).
+    before ADX itself can be averaged). The true range at bar 0 is NaN (no
+    previous close), and plus_dm/minus_dm are NaN at bar 0 as well; the first
+    valid ATR value appears at index ``period``.
 
     Returns:
         DataFrame with columns ``plus_di``, ``minus_di``, ``adx``.
@@ -151,6 +188,8 @@ def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         np.where((down_move > up_move) & (down_move > 0.0), down_move, 0.0),
         index=df.index,
     )
+    plus_dm = plus_dm.mask(up_move.isna(), np.nan)
+    minus_dm = minus_dm.mask(down_move.isna(), np.nan)
     tr = (
         pd.concat(
             [
@@ -161,7 +200,6 @@ def adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
             axis=1,
         )
         .max(axis=1)
-        .fillna(high - low)
     )
     atr_s = _wilder_mean(tr, period)
     plus_di = 100.0 * _wilder_mean(plus_dm, period) / atr_s
