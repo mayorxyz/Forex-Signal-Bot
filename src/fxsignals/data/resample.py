@@ -114,12 +114,10 @@ def align_htf_to_ltf(htf_df: pd.DataFrame, ltf_df: pd.DataFrame) -> pd.Series:
         index=pd.DatetimeIndex(htf_df.index, name="htf_open"),
     )
 
-    left = (
-        ltf_df.index.to_series()
-        .rename("ltf_time")
-        .to_frame(index=False)
-        .sort_values("ltf_time")
-    )
+    left = pd.DataFrame(
+        {"ltf_time": ltf_df.index.to_series().values},
+        index=ltf_df.index,
+    ).sort_values("ltf_time")
     merged = pd.merge_asof(
         left,
         avail.reset_index(),
